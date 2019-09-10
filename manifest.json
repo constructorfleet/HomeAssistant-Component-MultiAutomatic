@@ -1,0 +1,16 @@
+{
+  "domain": "automatic_accounts",
+  "name": "Multiple Automatic Accounts",
+  "documentation": "https://github.com/constructorfleet/HomeAssistant-Component-MultiAutomatic",
+  "requirements": [
+    "aioautomatic==0.6.5"
+  ],
+  "dependencies": [
+    "configurator",
+    "http"
+  ],
+  "codeowners": [
+    "@armills",
+    "@tagan42"
+  ]
+}
