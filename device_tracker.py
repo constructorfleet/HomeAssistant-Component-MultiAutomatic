@@ -23,6 +23,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
+import aioautomatic
+from aioautomatic.client import exceptions as automatic_exceptions
+from aioautomatic.exceptions import AutomaticError, UnauthorizedClientError
+
 REQUIREMENTS = ['aioautomatic==0.6.5']
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,9 +91,6 @@ def _write_refresh_token_to_file(hass, filename, refresh_token):
 @asyncio.coroutine
 def async_setup_scanner(hass, config, async_see, discovery_info=None):
     """Validate the configuration and return an Automatic scanner."""
-    import aioautomatic
-    from aioautomatic.exceptions import AutomaticError
-
     hass.http.register_view(AutomaticAuthCallbackView())
 
     scope = FULL_SCOPE if config.get(CONF_CURRENT_LOCATION) else DEFAULT_SCOPE
@@ -125,9 +126,13 @@ def async_setup_scanner(hass, config, async_see, discovery_info=None):
 
     configurator = hass.components.configurator
     request_id = configurator.async_request_config(
-        "Automatic" + (" " + config.get(CONF_NAME)) if CONF_NAME in config else ".", description=(
-            "Authorization required for Automatic device tracker" + (" " + config.get(CONF_NAME)) if CONF_NAME in config else "."),
-        link_name="Click here to authorize Home Assistant" + (" " + config.get(CONF_NAME)) if CONF_NAME in config else ".",
+        "Automatic" + (" " + config.get(CONF_NAME)) if CONF_NAME in config else ".",
+        description=(
+            "Authorization required for Automatic device tracker" +
+            (" " + config.get(CONF_NAME)) if CONF_NAME in config else "."),
+        link_name=(
+            "Click here to authorize Home Assistant" +
+            (" " + config.get(CONF_NAME)) if CONF_NAME in config else "."),
         link_url=client.generate_oauth_url(scope),
         entity_picture="/static/images/logo_automatic.png",
     )
@@ -151,8 +156,11 @@ def async_setup_scanner(hass, config, async_see, discovery_info=None):
 
 
 # noinspection PyTypeChecker
+# pylint: disable=too-many-instance-attributes
 class AutomaticAccount:
+    """Automatic account container."""
 
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             name,
@@ -177,12 +185,12 @@ class AutomaticAccount:
     @asyncio.coroutine
     def initialize_callback(self, code, state):
         """Call after OAuth2 response is returned."""
-        from aioautomatic.exceptions import AutomaticError
         try:
             self.session = yield from self.client.create_session_from_oauth_code(
                 code, state)
             yield from self.initialize_data()
             self.hass.components.configurator.async_request_done(self.configurator_request_id)
+            return True
         except AutomaticError as err:
             _LOGGER.error(str(err))
             if self.configurator:
@@ -250,6 +258,7 @@ class AutomaticAuthCallbackView(HomeAssistantView):
 class AutomaticData:
     """A class representing an Automatic cloud service connection."""
 
+    # pylint: disable=too-many-arguments
     def __init__(self, hass, name, client, session, devices, async_see):
         """Initialize the automatic device scanner."""
         self.hass = hass
@@ -272,7 +281,6 @@ class AutomaticData:
     @asyncio.coroutine
     def handle_event(self, name, event):
         """Coroutine to update state for a real time event."""
-        from aioautomatic.client import exceptions as automatic_exceptions
         self.hass.bus.async_fire(EVENT_AUTOMATIC_UPDATE, event.data)
 
         if event.vehicle.id not in self.hass.data[DATA_KNOWN_VEHICLES]:
@@ -286,7 +294,8 @@ class AutomaticData:
                 return
             yield from self.get_vehicle_info(vehicle)
 
-        if event.vehicle.id in self.vehicle_seen and event.created_at <= self.vehicle_seen[event.vehicle.id]:
+        if event.vehicle.id in self.vehicle_seen and \
+                event.created_at <= self.vehicle_seen[event.vehicle.id]:
             # Skip events received out of order
             _LOGGER.debug("Skipping out of order event. Event Created %s. "
                           "Last seen event: %s", event.created_at,
@@ -315,7 +324,6 @@ class AutomaticData:
     @asyncio.coroutine
     def ws_connect(self, now=None):
         """Open the websocket connection."""
-        from aioautomatic.exceptions import AutomaticError, UnauthorizedClientError
         self.ws_close_requested = False
 
         if self.ws_reconnect_handle is not None:
@@ -371,8 +379,6 @@ class AutomaticData:
     @asyncio.coroutine
     def get_vehicle_info(self, vehicle):
         """Fetch the latest vehicle info from automatic."""
-        from aioautomatic.exceptions import AutomaticError
-
         name = vehicle.display_name
         if name is None:
             name = ' '.join(filter(None, (
@@ -380,7 +386,7 @@ class AutomaticData:
 
         if self.devices is not None and name not in self.devices:
             self.hass.data[DATA_KNOWN_VEHICLES][vehicle.id] = None
-            return
+            return {}
 
         self.hass.data[DATA_KNOWN_VEHICLES][vehicle.id] = kwargs = {
             ATTR_DEV_ID: vehicle.id,
